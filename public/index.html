@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Restosistem — Panel Operativo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge">RS</span>
+        <div>
+          <h1>Restosistem</h1>
+          <p class="subtitle">Monolito en capas · API REST + PostgreSQL</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <span id="health-pill" class="pill pill-muted">Conectando…</span>
+        <button id="btn-refresh" class="btn btn-secondary btn-sm" type="button">Actualizar todo</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Módulos del sistema">
+      <button class="tab active" data-tab="mesero" type="button">
+        Mesero <span class="tab-tag">CU-01</span>
+      </button>
+      <button class="tab" data-tab="cocina" type="button">
+        Cocina <span class="tab-tag">CU-02</span>
+        <span id="badge-cocina" class="count-badge">0</span>
+      </button>
+      <button class="tab" data-tab="caja" type="button">
+        Caja y Cobro <span class="tab-tag">CU-03</span>
+        <span id="badge-caja" class="count-badge">0</span>
+      </button>
+      <button class="tab" data-tab="entregas" type="button">
+        Repartidor <span class="tab-tag">CU-04</span>
+        <span id="badge-entregas" class="count-badge">0</span>
+      </button>
+      <button class="tab" data-tab="inventario" type="button">
+        Inventario y Catálogo <span class="tab-tag">F-01 / R-01</span>
+      </button>
+    </nav>
+
+    <main class="container">
+      <!-- CU-01 MESERO -->
+      <section id="panel-mesero" class="panel active">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h2>Nuevo pedido (CU-01)</h2>
+              <div class="segmented" role="group" aria-label="Tipo de pedido">
+                <button id="tipo-mesa" class="seg-btn active" type="button">En Mesa</button>
+                <button id="tipo-domicilio" class="seg-btn" type="button">A Domicilio</button>
+              </div>
+            </div>
+
+            <div id="bloque-mesa" class="form-section">
+              <label class="label">Selecciona una mesa</label>
+              <div id="mesas-grid" class="mesas-grid"></div>
+            </div>
+
+            <div id="bloque-domicilio" class="form-section hidden">
+              <div class="field-row">
+                <label class="field">
+                  <span>Nombre del cliente</span>
+                  <input id="dom-nombre" type="text" placeholder="Ej. Ana Pérez" />
+                </label>
+                <label class="field">
+                  <span>Teléfono</span>
+                  <input id="dom-telefono" type="text" placeholder="Ej. 0991234567" />
+                </label>
+              </div>
+              <label class="field">
+                <span>Dirección de entrega</span>
+                <input id="dom-direccion" type="text" placeholder="Ej. Av. Siempre Viva 742, piso 3" />
+              </label>
+            </div>
+
+            <div class="form-section">
+              <label class="label">Carta disponible (stock calculado según receta)</label>
+              <div id="platos-grid" class="platos-grid"></div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <div class="card-header">
+                <h2>Orden actual</h2>
+                <button id="btn-limpiar-carrito" class="btn btn-ghost btn-sm" type="button">Vaciar</button>
+              </div>
+              <div id="carrito-lista" class="carrito-lista"></div>
+              <label class="field">
+                <span>Notas generales del pedido (opcional)</span>
+                <input id="pedido-notas" type="text" placeholder="Ej. Servir bebidas primero" />
+              </label>
+              <div class="total-bar">
+                <span>Total estimado</span>
+                <strong id="carrito-total">$0.00</strong>
+              </div>
+              <button id="btn-enviar-pedido" class="btn btn-primary btn-block" type="button">
+                Enviar pedido a cocina
+              </button>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Pedidos recientes</h2>
+                <span class="hint">Modificables/cancelables solo en estado ENVIADO</span>
+              </div>
+              <div id="pedidos-recientes" class="lista-tarjetas"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CU-02 COCINA -->
+      <section id="panel-cocina" class="panel">
+        <div class="grid-2-wide">
+          <div class="card">
+            <div class="card-header">
+              <h2>Tablero de Cocina (CU-02)</h2>
+              <span class="hint">Orden FIFO: del más antiguo al más reciente</span>
+            </div>
+            <div id="cocina-tablero" class="kds-grid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Notificaciones (Salón / Cocina)</h2>
+              <select id="filtro-notif" class="select-sm" aria-label="Filtrar notificaciones">
+                <option value="">Todas</option>
+                <option value="COCINA">COCINA</option>
+                <option value="SALON">SALON</option>
+              </select>
+            </div>
+            <div id="notificaciones-lista" class="notif-lista"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CU-03 CAJA -->
+      <section id="panel-caja" class="panel">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h2>Pedidos por cobrar (CU-03)</h2>
+              <span class="hint">Solo pedidos LISTO o entregados a domicilio sin pagar</span>
+            </div>
+            <div id="caja-pendientes" class="lista-tarjetas"></div>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <div class="card-header">
+                <h2>Registrar cobro</h2>
+                <span id="caja-pedido-badge" class="pill pill-muted">Ninguno seleccionado</span>
+              </div>
+              <div id="caja-detalle" class="empty-state">
+                Selecciona un pedido de la izquierda para calcular su total y cobrar.
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Último resultado e historial de pagos</h2>
+              </div>
+              <div id="caja-resultado" class="empty-state">Aún no hay cobros en esta sesión.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CU-04 REPARTIDOR -->
+      <section id="panel-entregas" class="panel">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h2>Pedidos listos para entrega (CU-04)</h2>
+              <label class="inline-field">
+                <span>Repartidor:</span>
+                <input id="repartidor-nombre" type="text" value="Luis Mora" />
+              </label>
+            </div>
+            <div id="entregas-pendientes" class="lista-tarjetas"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Entregas asignadas / en curso</h2>
+              <select id="filtro-entregas" class="select-sm" aria-label="Filtrar entregas">
+                <option value="">Todas</option>
+                <option value="ASIGNADA">ASIGNADA</option>
+                <option value="EN_CAMINO">EN_CAMINO</option>
+                <option value="ENTREGADO">ENTREGADO</option>
+                <option value="DEVUELTO">DEVUELTO</option>
+              </select>
+            </div>
+            <div id="entregas-lista" class="lista-tarjetas"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INVENTARIO Y CATÁLOGO -->
+      <section id="panel-inventario" class="panel">
+        <div class="grid-2-wide">
+          <div class="card">
+            <div class="card-header">
+              <h2>Inventario en tiempo real (F-01 / R-01)</h2>
+              <span class="hint">Disponible = Físico − Comprometido en pedidos sin cobrar</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ingrediente</th>
+                    <th>Unidad</th>
+                    <th>Físico</th>
+                    <th>Comprometido</th>
+                    <th>Disponible</th>
+                    <th>Reponer</th>
+                  </tr>
+                </thead>
+                <tbody id="inventario-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <div class="card-header">
+                <h2>Nueva mesa</h2>
+              </div>
+              <form id="form-mesa" class="inline-form">
+                <input id="nueva-mesa-num" type="number" min="1" placeholder="Número de mesa (ej. 4)" required />
+                <button class="btn btn-primary btn-sm" type="submit">Crear mesa</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Nuevo ingrediente</h2>
+              </div>
+              <form id="form-ingrediente" class="stack-sm">
+                <div class="field-row">
+                  <input id="nuevo-ing-nombre" type="text" placeholder="Nombre (ej. Tomate)" required />
+                  <input id="nuevo-ing-unidad" type="text" placeholder="Unidad (g, u, ml)" required />
+                </div>
+                <div class="inline-form">
+                  <input id="nuevo-ing-stock" type="number" min="0" step="0.01" placeholder="Stock inicial" value="0" required />
+                  <button class="btn btn-primary btn-sm" type="submit">Crear ingrediente</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Nuevo plato con receta</h2>
+              </div>
+              <form id="form-plato" class="stack-sm">
+                <div class="field-row">
+                  <input id="nuevo-plato-nombre" type="text" placeholder="Nombre del plato" required />
+                  <input id="nuevo-plato-precio" type="number" min="0" step="0.01" placeholder="Precio ($)" required />
+                </div>
+                <div id="receta-builder" class="stack-sm"></div>
+                <div class="actions-row">
+                  <button id="btn-add-receta-linea" class="btn btn-secondary btn-sm" type="button">+ Ingrediente a receta</button>
+                  <button class="btn btn-primary btn-sm" type="submit">Guardar plato</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Consola de actividad HTTP para ver respuestas reales del backend -->
+    <footer class="api-console">
+      <div class="api-console-head">
+        <div class="api-console-status">
+          <span class="console-label">Última llamada al Backend</span>
+          <code id="api-last-summary">Esperando interacción…</code>
+        </div>
+        <button id="btn-toggle-json" class="btn btn-ghost btn-sm" type="button">Ver / ocultar JSON</button>
+      </div>
+      <pre id="api-last-json" class="api-json hidden"></pre>
+    </footer>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -70,9 +70,11 @@ npm run db:seed       # opcional: datos de DEMOSTRACIÓN (mesas, ingredientes, 2
 ## Ejecutar
 
 ```bash
-npm start             # http://localhost:3000   (npm run dev recarga al guardar)
+npm start             # http://localhost:3000 (interfaz web y API REST)
 curl localhost:3000/health
 ```
+
+Al abrir `http://localhost:3000` en el navegador se carga el panel operativo visual (Mesero, Cocina, Caja, Repartidor e Inventario/Catálogo), que consume directamente los endpoints `/api/*` del backend junto con un visor de la última llamada HTTP.
 
 ## Pruebas
 
@@ -156,6 +158,7 @@ restosistem/
 ├── docs/
 │   ├── openapi.yaml            # contrato de API
 │   └── bitacora.md             # incrementos, trazabilidad con drivers, pendientes
+├── public/                     # interfaz web ligera (consume /api/*)
 ├── src/
 │   ├── config/env.ts
 │   ├── domain/                 # entities.ts, errors.ts, reglas.ts

@@ -106,6 +106,16 @@ Los drivers y casos de uso **no se modificaron**; se implementaron tal como est�
 - **Resultado:** `tsc --noEmit` sin errores; **75/75 pruebas pasando** (7 archivos).
 - **Pendientes:** crear los commits en Git y subir al repositorio remoto en GitHub (`P-01`).
 
+## INC-09 — Interfaz web operativa ligera conectada a la API REST
+- **Fecha:** 2026-11-24
+- **Driver:** F-01, F-02, F-03 (visualización y operación integral de los 4 flujos sin alterar la arquitectura en capas).
+- **Caso de uso:** CU-01…CU-04.
+- **Archivos/componentes:** `public/index.html`, `public/styles.css`, `public/app.js`; `src/app.ts`; `README.md`.
+- **Cambio:** se incorporó una interfaz web estática servida en `/` desde `src/app.ts` con vistas por rol (**Mesero**, **Cocina**, **Caja**, **Repartidor**, **Inventario y Catálogo**) y una consola inferior que muestra el código HTTP y JSON real devuelto por cada endpoint `/api/*`. No modifica el router `/api`, las capas ni el contrato OpenAPI.
+- **Pruebas:** `npm run typecheck`, `npm test` y verificación en vivo de `GET /` + consola visual contra PostgreSQL 18.
+- **Resultado:** `tsc --noEmit` sin errores; **75/75 pruebas pasando** (7 archivos); interfaz web verificada en `/` junto con `/styles.css`, `/app.js` y `/health`.
+- **Pendientes:** verificación manual en navegador por el autor y registro del commit final en Moodle (`P-01`).
+
 ---
 
 ## Pendientes y limitaciones (estado real)

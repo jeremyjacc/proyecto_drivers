@@ -1,4 +1,6 @@
 import express, { type Express } from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { CatalogoService } from "./application/catalogo.service";
 import { CobroService } from "./application/cobro.service";
 import { EntregasService } from "./application/entregas.service";
@@ -16,6 +18,8 @@ import {
 import { manejarErrores, noEncontradaRuta } from "./presentation/middlewares/errores";
 import { crearRutas } from "./presentation/routes";
 
+const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
+
 /**
  * Raíz de composición del monolito: aquí (y solo aquí) se conectan las tres
  * capas — Presentación → Aplicación → Persistencia.
@@ -31,6 +35,7 @@ export function crearApp(pool: Pool): Express {
 
   const app = express();
   app.use(express.json());
+  app.use(express.static(PUBLIC_DIR));
 
   app.get("/health", async (_req, res) => {
     await pool.query("SELECT 1");
