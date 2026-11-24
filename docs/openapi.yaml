@@ -1,5 +1,986 @@
 openapi: 3.0.3
 info:
   title: Restosistem API
-  version: 0.1.0
-paths: {}
+  version: 1.0.0
+  description: |
+    API REST del monolito en capas de Restosistem. Cubre los casos de uso
+    **CU-01** (registrar pedido), **CU-02** (gestionar preparación),
+    **CU-03** (cobrar y descontar inventario) y **CU-04** (envío a domicilio),
+    más los catálogos de apoyo (mesas, ingredientes, inventario y platos con receta).
+
+    Trazabilidad con los drivers:
+    - **F-01** Control exacto de existencias y registro de ventas: `/inventario`, `/pedidos/{pedidoId}/pagos`.
+    - **F-02** Cocina ve pedidos y los pasa a "En preparación" y "Listo": `/cocina/*`.
+    - **F-03** Seguimiento de entregas a domicilio con dirección explícita: `/entregas/*`.
+
+    Todos los errores usan el esquema `Error`.
+servers:
+  - url: http://localhost:3000/api
+    description: Desarrollo local
+tags:
+  - name: Catálogo
+    description: Mesas, ingredientes, platos y recetas
+  - name: Inventario
+    description: Existencias (F-01)
+  - name: Pedidos
+    description: CU-01
+  - name: Preparación
+    description: CU-02 (F-02)
+  - name: Cobro
+    description: CU-03 (F-01)
+  - name: Entregas
+    description: CU-04 (F-03)
+  - name: Sistema
+
+paths:
+  /health:
+    servers:
+      - url: http://localhost:3000
+        description: Raíz del servidor (fuera de /api)
+    get:
+      tags: [Sistema]
+      summary: Comprobación de salud (verifica la conexión a PostgreSQL)
+      operationId: health
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, example: ok }
+
+  /mesas:
+    post:
+      tags: [Catálogo]
+      summary: Crear una mesa
+      operationId: crearMesa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrearMesa' }
+            example: { numero: 1 }
+      responses:
+        '201':
+          description: Mesa creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mesa' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+    get:
+      tags: [Catálogo]
+      summary: Listar mesas
+      operationId: listarMesas
+      responses:
+        '200':
+          description: Lista de mesas ordenada por número
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Mesa' }
+
+  /ingredientes:
+    post:
+      tags: [Catálogo]
+      summary: Crear un ingrediente con su existencia inicial
+      operationId: crearIngrediente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrearIngrediente' }
+            example: { nombre: Carne, unidad: g, existenciaInicial: 500 }
+      responses:
+        '201':
+          description: Ingrediente creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngredienteCreado' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '409': { $ref: '#/components/responses/Conflicto' }
+    get:
+      tags: [Catálogo]
+      summary: Listar ingredientes
+      operationId: listarIngredientes
+      responses:
+        '200':
+          description: Lista de ingredientes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Ingrediente' }
+
+  /inventario:
+    get:
+      tags: [Inventario]
+      summary: Existencias actuales
+      description: |
+        `cantidad` es el stock físico (se descuenta al cobrar), `comprometido` lo que reservan
+        los pedidos abiertos aún no cobrados y `disponible = cantidad - comprometido`.
+      operationId: listarInventario
+      responses:
+        '200':
+          description: Existencias por ingrediente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Existencia' }
+
+  /inventario/{id}/reposiciones:
+    post:
+      tags: [Inventario]
+      summary: Reponer existencias de un ingrediente
+      operationId: reponerInventario
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Reposicion' }
+            example: { cantidad: 250 }
+      responses:
+        '200':
+          description: Existencia actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Existencia' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /platos:
+    post:
+      tags: [Catálogo]
+      summary: Crear un plato con su receta
+      operationId: crearPlato
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrearPlato' }
+            example:
+              nombre: Hamburguesa
+              precio: 8.5
+              receta:
+                - { ingredienteId: 1, cantidad: 150 }
+                - { ingredienteId: 2, cantidad: 1 }
+      responses:
+        '201':
+          description: Plato creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plato' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '409':
+          description: Plato duplicado o ingredientes inexistentes en la receta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [Catálogo]
+      summary: Listar platos con porciones disponibles
+      operationId: listarPlatos
+      responses:
+        '200':
+          description: Lista de platos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Plato' }
+
+  /platos/{id}:
+    get:
+      tags: [Catálogo]
+      summary: Obtener un plato
+      operationId: obtenerPlato
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Plato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plato' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /pedidos:
+    post:
+      tags: [Pedidos]
+      summary: "CU-01: registrar un pedido y enviarlo a cocina"
+      description: |
+        Valida el inventario según las recetas (R-01), considerando lo ya comprometido por
+        otros pedidos abiertos. Si algún platillo no tiene existencias suficientes, el pedido
+        se rechaza con `409 STOCK_INSUFICIENTE` (detalle de platos bloqueados) y se notifica al salón.
+      operationId: registrarPedido
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrearPedido' }
+            examples:
+              mesa:
+                summary: Pedido de mesa
+                value:
+                  tipo: MESA
+                  mesaId: 1
+                  items:
+                    - { platoId: 1, cantidad: 2, nota: sin cebolla }
+              domicilio:
+                summary: Pedido a domicilio
+                value:
+                  tipo: DOMICILIO
+                  cliente: { nombre: Ana Pérez, telefono: '0991234567' }
+                  direccionEntrega: Av. Siempre Viva 742, piso 3
+                  items:
+                    - { platoId: 1, cantidad: 1 }
+      responses:
+        '201':
+          description: Pedido registrado y enviado a cocina
+          headers:
+            Location:
+              description: URL del pedido creado
+              schema: { type: string, example: /api/pedidos/1 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Inventario insuficiente (`STOCK_INSUFICIENTE`) o plato inactivo/sin receta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  codigo: STOCK_INSUFICIENTE
+                  mensaje: No hay existencias suficientes para algunos platillos; el pedido fue rechazado
+                  detalles:
+                    platosBloqueados:
+                      - platoId: 1
+                        plato: Hamburguesa
+                        faltantes:
+                          - { ingredienteId: 1, ingrediente: Carne, unidad: g, requerido: 600, disponible: 500 }
+    get:
+      tags: [Pedidos]
+      summary: Listar pedidos
+      operationId: listarPedidos
+      parameters:
+        - name: estado
+          in: query
+          description: Uno o varios estados separados por coma
+          schema: { type: string, example: 'ENVIADO,EN_PREPARACION' }
+        - name: tipo
+          in: query
+          schema: { $ref: '#/components/schemas/TipoPedido' }
+      responses:
+        '200':
+          description: Pedidos, del más antiguo al más reciente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+
+  /pedidos/{id}:
+    get:
+      tags: [Pedidos]
+      summary: Obtener un pedido
+      operationId: obtenerPedido
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /pedidos/{id}/items:
+    put:
+      tags: [Pedidos]
+      summary: Modificar los platillos de un pedido antes de preparar
+      description: Solo permitido en estado `ENVIADO` (alterno de CU-02). Vuelve a validar inventario.
+      operationId: modificarPedido
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModificarPedido' }
+            example:
+              items:
+                - { platoId: 1, cantidad: 3 }
+      responses:
+        '200':
+          description: Pedido modificado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Pedido no modificable (`PEDIDO_NO_MODIFICABLE`) o stock insuficiente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pedidos/{id}/cancelar:
+    post:
+      tags: [Pedidos]
+      summary: Cancelar un pedido antes de preparar
+      description: Solo permitido en estado `ENVIADO` (alterno de CU-02). Libera la mesa y notifica a cocina.
+      operationId: cancelarPedido
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Pedido cancelado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: El pedido ya no se puede cancelar (`PEDIDO_NO_CANCELABLE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /cocina/pedidos:
+    get:
+      tags: [Preparación]
+      summary: "CU-02: tablero de cocina (pedidos ENVIADO y EN_PREPARACION)"
+      operationId: tableroCocina
+      responses:
+        '200':
+          description: Pedidos pendientes de preparar, del más antiguo al más reciente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pedido' }
+
+  /cocina/pedidos/{id}/iniciar:
+    post:
+      tags: [Preparación]
+      summary: Marcar el pedido "En preparación"
+      operationId: iniciarPreparacion
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Pedido en preparación
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/EstadoInvalido' }
+
+  /cocina/pedidos/{id}/listo:
+    post:
+      tags: [Preparación]
+      summary: Marcar el pedido "Listo" y notificar al salón
+      operationId: marcarListo
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Pedido listo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/EstadoInvalido' }
+
+  /notificaciones:
+    get:
+      tags: [Preparación]
+      summary: Notificaciones para salón y cocina
+      operationId: listarNotificaciones
+      parameters:
+        - name: destino
+          in: query
+          schema: { type: string, enum: [SALON, COCINA] }
+        - name: pedidoId
+          in: query
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Notificaciones en orden cronológico
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notificacion' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+
+  /pedidos/{pedidoId}/total:
+    get:
+      tags: [Cobro]
+      summary: "CU-03: total a cobrar de un pedido"
+      operationId: totalPedido
+      parameters:
+        - { $ref: '#/components/parameters/PedidoId' }
+      responses:
+        '200':
+          description: Total calculado por el sistema
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotalPedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /pedidos/{pedidoId}/pagos:
+    post:
+      tags: [Cobro]
+      summary: "CU-03: registrar el pago, descontar ingredientes por receta y cerrar la orden"
+      description: |
+        Precondición: el pedido debe estar `LISTO` o, si es a domicilio, ya entregado (`CERRADO` con pago pendiente).
+
+        Dentro de una única transacción: valida el pago, descuenta exactamente los ingredientes
+        de las recetas y marca el pedido como pagado (los pedidos de mesa pasan a `CERRADO`;
+        los de domicilio quedan `PAGADO` y se cierran al entregarse).
+
+        Si el pago es **denegado** (autorización denegada o efectivo insuficiente) responde
+        `402`, registra el intento, **no** descuenta inventario y la orden permanece `PENDIENTE_PAGO`.
+        No se integra ninguna pasarela real: para tarjeta/transferencia el cajero informa el
+        resultado de la autorización en `resultadoAutorizacion`.
+      operationId: cobrarPedido
+      parameters:
+        - { $ref: '#/components/parameters/PedidoId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Cobrar' }
+            examples:
+              efectivo:
+                value: { metodo: EFECTIVO, montoRecibido: 20 }
+              tarjetaDenegada:
+                value: { metodo: TARJETA, resultadoAutorizacion: DENEGADO, motivoDenegacion: Fondos insuficientes }
+      responses:
+        '201':
+          description: Pago aprobado, inventario descontado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoCobro' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '402':
+          description: Pago denegado (`PAGO_DENEGADO`); la orden sigue pendiente de pago
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  codigo: PAGO_DENEGADO
+                  mensaje: "Pago denegado: Fondos insuficientes. La orden permanece pendiente de pago."
+                  detalles: { pedidoId: 1, pagoEstado: PENDIENTE_PAGO }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Pedido no cobrable (`PEDIDO_NO_COBRABLE`), ya pagado (`PEDIDO_YA_PAGADO`) o inventario inconsistente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [Cobro]
+      summary: Historial de intentos de pago de un pedido
+      operationId: listarPagos
+      parameters:
+        - { $ref: '#/components/parameters/PedidoId' }
+      responses:
+        '200':
+          description: Pagos aprobados y denegados
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pago' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /entregas/pendientes:
+    get:
+      tags: [Entregas]
+      summary: "CU-04: pedidos a domicilio listos y sin repartidor"
+      operationId: entregasPendientes
+      responses:
+        '200':
+          description: Pedidos disponibles para tomar
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pedido' }
+
+  /entregas:
+    post:
+      tags: [Entregas]
+      summary: El repartidor toma un pedido
+      operationId: tomarEntrega
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TomarEntrega' }
+            example: { pedidoId: 1, repartidor: Luis Mora }
+      responses:
+        '201':
+          description: Entrega asignada
+          headers:
+            Location:
+              schema: { type: string, example: /api/entregas/1 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Pedido no es de domicilio, no está LISTO o ya fue tomado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [Entregas]
+      summary: Listar entregas
+      operationId: listarEntregas
+      parameters:
+        - name: estado
+          in: query
+          schema: { $ref: '#/components/schemas/EstadoEntrega' }
+        - name: repartidor
+          in: query
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Entregas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+
+  /entregas/{id}:
+    get:
+      tags: [Entregas]
+      summary: Obtener una entrega (incluye dirección y cliente)
+      operationId: obtenerEntrega
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Entrega
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /entregas/{id}/en-camino:
+    post:
+      tags: [Entregas]
+      summary: Marcar "En camino"
+      operationId: entregaEnCamino
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Entrega en camino
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/EstadoInvalido' }
+
+  /entregas/{id}/entregado:
+    post:
+      tags: [Entregas]
+      summary: Marcar "Entregado" y cerrar el pedido
+      operationId: entregaEntregado
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Entrega realizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/EstadoInvalido' }
+
+  /entregas/{id}/devuelto:
+    post:
+      tags: [Entregas]
+      summary: Marcar "Devuelto" (cliente ilocalizable)
+      operationId: entregaDevuelto
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DevolverEntrega' }
+            example: { motivo: Cliente ilocalizable }
+      responses:
+        '200':
+          description: Entrega devuelta; el pedido pasa a DEVUELTO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entrega' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/EstadoInvalido' }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    PedidoId:
+      name: pedidoId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    DatosInvalidos:
+      description: Datos de la solicitud inválidos (`DATOS_INVALIDOS`, `JSON_INVALIDO`, ...)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              codigo: DATOS_INVALIDOS
+              mensaje: La solicitud contiene datos inválidos
+              detalles:
+                - { campo: items, mensaje: El pedido debe tener al menos un platillo }
+    NoEncontrado:
+      description: Recurso inexistente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflicto:
+      description: Conflicto con el estado actual (duplicados u operación no permitida)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    EstadoInvalido:
+      description: Transición de estado no permitida (`ESTADO_INVALIDO`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              codigo: ESTADO_INVALIDO
+              mensaje: No se puede pasar el pedido de ENVIADO a LISTO
+              detalles: { estadoActual: ENVIADO, estadoSolicitado: LISTO, permitidos: [EN_PREPARACION, CANCELADO] }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [codigo, mensaje]
+          properties:
+            codigo: { type: string, example: STOCK_INSUFICIENTE }
+            mensaje: { type: string }
+            detalles: {}
+    TipoPedido: { type: string, enum: [MESA, DOMICILIO] }
+    EstadoPedido:
+      type: string
+      enum: [ENVIADO, EN_PREPARACION, LISTO, CERRADO, CANCELADO, DEVUELTO]
+    EstadoPago: { type: string, enum: [PENDIENTE_PAGO, PAGADO] }
+    EstadoEntrega: { type: string, enum: [ASIGNADA, EN_CAMINO, ENTREGADO, DEVUELTO] }
+    MetodoPago: { type: string, enum: [EFECTIVO, TARJETA, TRANSFERENCIA] }
+
+    CrearMesa:
+      type: object
+      additionalProperties: false
+      required: [numero]
+      properties:
+        numero: { type: integer, minimum: 1 }
+    Mesa:
+      type: object
+      required: [id, numero, estado]
+      properties:
+        id: { type: integer }
+        numero: { type: integer }
+        estado: { type: string, enum: [LIBRE, OCUPADA] }
+
+    CrearIngrediente:
+      type: object
+      additionalProperties: false
+      required: [nombre, unidad]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        unidad: { type: string, minLength: 1, maxLength: 20, example: g }
+        existenciaInicial: { type: number, minimum: 0, default: 0 }
+    Ingrediente:
+      type: object
+      required: [id, nombre, unidad]
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        unidad: { type: string }
+    IngredienteCreado:
+      allOf:
+        - $ref: '#/components/schemas/Ingrediente'
+        - type: object
+          required: [existencia]
+          properties:
+            existencia: { type: number }
+
+    Existencia:
+      type: object
+      required: [ingredienteId, ingrediente, unidad, cantidad, comprometido, disponible]
+      properties:
+        ingredienteId: { type: integer }
+        ingrediente: { type: string }
+        unidad: { type: string }
+        cantidad: { type: number, description: Stock físico }
+        comprometido: { type: number, description: Reservado por pedidos abiertos sin cobrar }
+        disponible: { type: number }
+    Reposicion:
+      type: object
+      additionalProperties: false
+      required: [cantidad]
+      properties:
+        cantidad: { type: number, exclusiveMinimum: true, minimum: 0 }
+
+    RecetaLinea:
+      type: object
+      required: [ingredienteId, ingrediente, unidad, cantidad]
+      properties:
+        ingredienteId: { type: integer }
+        ingrediente: { type: string }
+        unidad: { type: string }
+        cantidad: { type: number }
+    CrearPlato:
+      type: object
+      additionalProperties: false
+      required: [nombre, precio, receta]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 100 }
+        precio: { type: number, minimum: 0 }
+        receta:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [ingredienteId, cantidad]
+            properties:
+              ingredienteId: { type: integer, minimum: 1 }
+              cantidad: { type: number, exclusiveMinimum: true, minimum: 0 }
+    Plato:
+      type: object
+      required: [id, nombre, precio, activo, receta, porcionesDisponibles, disponible]
+      properties:
+        id: { type: integer }
+        nombre: { type: string }
+        precio: { type: number }
+        activo: { type: boolean }
+        receta:
+          type: array
+          items: { $ref: '#/components/schemas/RecetaLinea' }
+        porcionesDisponibles:
+          type: integer
+          description: Porciones que aún se pueden pedir con el stock no comprometido
+        disponible: { type: boolean }
+
+    ItemPedidoSolicitud:
+      type: object
+      additionalProperties: false
+      required: [platoId, cantidad]
+      properties:
+        platoId: { type: integer, minimum: 1 }
+        cantidad: { type: integer, minimum: 1, maximum: 100 }
+        nota: { type: string, maxLength: 200, nullable: true }
+    CrearPedido:
+      type: object
+      additionalProperties: false
+      required: [tipo, items]
+      description: |
+        `MESA` requiere `mesaId`. `DOMICILIO` requiere `cliente` y `direccionEntrega`.
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoPedido' }
+        mesaId: { type: integer, minimum: 1 }
+        cliente:
+          type: object
+          additionalProperties: false
+          required: [nombre, telefono]
+          properties:
+            nombre: { type: string, minLength: 1, maxLength: 100 }
+            telefono: { type: string, minLength: 1, maxLength: 30 }
+        direccionEntrega: { type: string, minLength: 1, maxLength: 300 }
+        notas: { type: string, maxLength: 300, nullable: true }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ItemPedidoSolicitud' }
+    ModificarPedido:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ItemPedidoSolicitud' }
+    ItemPedido:
+      type: object
+      required: [id, platoId, plato, cantidad, precioUnitario, subtotal, nota]
+      properties:
+        id: { type: integer }
+        platoId: { type: integer }
+        plato: { type: string }
+        cantidad: { type: integer }
+        precioUnitario: { type: number }
+        subtotal: { type: number }
+        nota: { type: string, nullable: true }
+    Pedido:
+      type: object
+      required: [id, tipo, estado, pagoEstado, mesa, cliente, direccionEntrega, notas, total, items, creadoEn, actualizadoEn]
+      properties:
+        id: { type: integer }
+        tipo: { $ref: '#/components/schemas/TipoPedido' }
+        estado: { $ref: '#/components/schemas/EstadoPedido' }
+        pagoEstado: { $ref: '#/components/schemas/EstadoPago' }
+        mesa:
+          type: object
+          nullable: true
+          required: [id, numero]
+          properties:
+            id: { type: integer }
+            numero: { type: integer }
+        cliente:
+          type: object
+          nullable: true
+          required: [nombre, telefono]
+          properties:
+            nombre: { type: string }
+            telefono: { type: string }
+        direccionEntrega: { type: string, nullable: true }
+        notas: { type: string, nullable: true }
+        total: { type: number }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ItemPedido' }
+        creadoEn: { type: string, format: date-time }
+        actualizadoEn: { type: string, format: date-time }
+
+    Notificacion:
+      type: object
+      required: [id, destino, pedidoId, mensaje, creadaEn]
+      properties:
+        id: { type: integer }
+        destino: { type: string, enum: [SALON, COCINA] }
+        pedidoId: { type: integer, nullable: true }
+        mensaje: { type: string }
+        creadaEn: { type: string, format: date-time }
+
+    TotalPedido:
+      type: object
+      required: [pedidoId, total, pagoEstado]
+      properties:
+        pedidoId: { type: integer }
+        total: { type: number }
+        pagoEstado: { $ref: '#/components/schemas/EstadoPago' }
+    Cobrar:
+      type: object
+      additionalProperties: false
+      required: [metodo]
+      description: |
+        `EFECTIVO` requiere `montoRecibido`. `TARJETA` y `TRANSFERENCIA` requieren
+        `resultadoAutorizacion` (resultado informado por el cajero; no hay pasarela real).
+      properties:
+        metodo: { $ref: '#/components/schemas/MetodoPago' }
+        montoRecibido: { type: number, minimum: 0 }
+        resultadoAutorizacion: { type: string, enum: [APROBADO, DENEGADO] }
+        motivoDenegacion: { type: string, maxLength: 200 }
+        referencia: { type: string, maxLength: 100 }
+    Pago:
+      type: object
+      required: [id, pedidoId, metodo, total, montoRecibido, resultado, motivoDenegacion, referencia, creadoEn]
+      properties:
+        id: { type: integer }
+        pedidoId: { type: integer }
+        metodo: { $ref: '#/components/schemas/MetodoPago' }
+        total: { type: number }
+        montoRecibido: { type: number, nullable: true }
+        resultado: { type: string, enum: [APROBADO, DENEGADO] }
+        motivoDenegacion: { type: string, nullable: true }
+        referencia: { type: string, nullable: true }
+        creadoEn: { type: string, format: date-time }
+    ConsumoIngrediente:
+      type: object
+      required: [ingredienteId, ingrediente, unidad, cantidad]
+      properties:
+        ingredienteId: { type: integer }
+        ingrediente: { type: string }
+        unidad: { type: string }
+        cantidad: { type: number }
+    ResultadoCobro:
+      type: object
+      required: [pago, pedido, cambio, ingredientesDescontados]
+      properties:
+        pago: { $ref: '#/components/schemas/Pago' }
+        pedido: { $ref: '#/components/schemas/Pedido' }
+        cambio: { type: number }
+        ingredientesDescontados:
+          type: array
+          items: { $ref: '#/components/schemas/ConsumoIngrediente' }
+
+    TomarEntrega:
+      type: object
+      additionalProperties: false
+      required: [pedidoId, repartidor]
+      properties:
+        pedidoId: { type: integer, minimum: 1 }
+        repartidor: { type: string, minLength: 1, maxLength: 100 }
+    DevolverEntrega:
+      type: object
+      additionalProperties: false
+      required: [motivo]
+      properties:
+        motivo: { type: string, minLength: 1, maxLength: 300 }
+    Entrega:
+      type: object
+      required: [id, pedidoId, repartidor, estado, direccion, cliente, motivoDevolucion, tomadaEn, enCaminoEn, finalizadaEn]
+      properties:
+        id: { type: integer }
+        pedidoId: { type: integer }
+        repartidor: { type: string }
+        estado: { $ref: '#/components/schemas/EstadoEntrega' }
+        direccion: { type: string }
+        cliente:
+          type: object
+          required: [nombre, telefono]
+          properties:
+            nombre: { type: string }
+            telefono: { type: string }
+        motivoDevolucion: { type: string, nullable: true }
+        tomadaEn: { type: string, format: date-time }
+        enCaminoEn: { type: string, format: date-time, nullable: true }
+        finalizadaEn: { type: string, format: date-time, nullable: true }
