@@ -3,7 +3,7 @@ import type { UnidadDeTrabajo } from "../persistence/unit-of-work";
 
 /** Mesas, ingredientes, recetas/platos e inventario (módulos Ingredientes e Inventario). */
 export class CatalogoService {
-  constructor(private readonly uow: UnidadDeTrabajo) {}
+  constructor(private readonly uow: UnidadDeTrabajo) { }
 
   crearMesa(numero: number) {
     return this.uow.lectura.mesas.crear(numero);
