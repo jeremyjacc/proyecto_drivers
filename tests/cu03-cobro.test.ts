@@ -121,6 +121,39 @@ describe("CU-03 Cobrar y descontar inventario (F-01)", () => {
     const [a, b] = await Promise.all([envio(), envio()]);
     expect([a.status, b.status].sort()).toEqual([201, 409]);
     expect(await existencias()).toEqual({ Carne: 350, Pan: 9 });
+    const pagos = (await env.api.get(`/api/pedidos/${p.id}/pagos`)).body;
+    expect(pagos.filter((pg: any) => pg.resultado === "APROBADO")).toHaveLength(1);
+  });
+
+  it("dos cobros simultáneos compitiendo por el último ingrediente: solo uno se aprueba y el inventario no queda negativo", async () => {
+    const { mesa, hamburguesa, pan } = await sembrar(env.api);
+    const p1 = await pedidoDeMesa(env.api, mesa.id, hamburguesa.id, 1);
+    const p2 = await pedidoDeMesa(env.api, mesa.id, hamburguesa.id, 1);
+    await dejarListo(env.api, p1.id);
+    await dejarListo(env.api, p2.id);
+
+    // Simula que solo queda 1 pan físico disponible para dos pedidos listos concurrentes
+    await env.pool.query("UPDATE inventario SET cantidad = 1 WHERE ingrediente_id = $1", [pan.id]);
+
+    const [r1, r2] = await Promise.all([
+      env.api.post(`/api/pedidos/${p1.id}/pagos`).send({ metodo: "EFECTIVO", montoRecibido: 10 }),
+      env.api.post(`/api/pedidos/${p2.id}/pagos`).send({ metodo: "EFECTIVO", montoRecibido: 10 }),
+    ]);
+
+    expect([r1.status, r2.status].sort()).toEqual([201, 409]);
+    const rechazado = r1.status === 409 ? r1 : r2;
+    expect(rechazado.body.error.codigo).toBe("INVENTARIO_INCONSISTENTE");
+
+    // Invariantes QA-04: 0 saldos negativos y rollback limpio del cobro fallido (Carne solo se descuenta 1 vez)
+    const inv = await existencias();
+    expect(inv.Pan).toBe(0);
+    expect(inv.Carne).toBe(350);
+
+    const ganadorId = r1.status === 201 ? p1.id : p2.id;
+    const perdedorId = r1.status === 201 ? p2.id : p1.id;
+    expect((await env.api.get(`/api/pedidos/${ganadorId}`)).body.pagoEstado).toBe("PAGADO");
+    expect((await env.api.get(`/api/pedidos/${perdedorId}`)).body.pagoEstado).toBe("PENDIENTE_PAGO");
+    expect((await env.api.get(`/api/pedidos/${perdedorId}/pagos`)).body).toHaveLength(0);
   });
 
   it("solo se cobran pedidos LISTO (409 si está ENVIADO)", async () => {

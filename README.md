@@ -16,7 +16,19 @@ Cuatro flujos de punta a punta (HTTP → aplicación → PostgreSQL), con los dr
 
 Módulos: Pedidos, Preparación, Ingredientes, Inventario, Ventas y Entregas.
 
-**Fuera de este entregable** (documentado en `docs/bitacora.md`): R-02 (modo offline/sincronización), R-03 (interfaz móvil de entregas), autenticación y pasarela de pago real.
+### Alcance excluido y justificación de red local (LAN)
+
+- **Fuera de alcance:** facturación electrónica conectada al SRI (solo se manejan totales y registros internos), pasarelas de pago en línea reales (el cajero registra el resultado de autorización), módulo de recursos humanos/nómina, programas de fidelización, autenticación/roles y sincronización asíncrona hacia nube externa.
+- **Justificación de operación 100 % en red local (`R-02` / `QA-02`):** la conexión externa a Internet del restaurante puede interrumpirse o degradarse durante horas pico. Para no paralizar el salón, la cocina ni la caja, Restosistem ejecuta tanto el backend/PostgreSQL como la interfaz estática (`public/`) íntegramente en la red local (LAN), sin dependencias externas (`https://...` de CDNs, fuentes o iconos), consumiendo rutas relativas (`/api/...`) y alertando en pantalla si falla el servidor local.
+
+### Matriz de trazabilidad (Drivers · Casos de Uso · Reglas · Escenarios)
+
+| Driver | Caso de uso | Regla / Restricción | Escenario y métrica comprobable | Evidencia verificable |
+|---|---|---|---|---|
+| **F-01** Control exacto de inventario y ventas | `CU-01`, `CU-03` | `R-01` (receta obligatoria) | **QA-04:** 0 cobros aprobados duplicados, 0 saldos negativos en inventario bajo concurrencia, rollback completo ante stock insuficiente y descuento por transacción | `cobro.service.ts`, `001_esquema_inicial.sql`, `tests/cu03-cobro.test.ts` |
+| **F-02** Pantallas en cocina en tiempo real | `CU-01`, `CU-02` | `R-02` (LAN estable) | **QA-01:** actualización en vista Cocina cada **1.5 s** (≤ 2 s) solo mientras la pestaña está activa<br>**QA-03:** toma de pedido estándar (4 platos, 2 bebidas, 1 modificador) en **≤ 12 interacciones** sin recargas | `preparacion.service.ts`, `public/app.js`, `tests/cu02-preparacion.test.ts` |
+| **F-01 / F-02** Continuidad operativa | `CU-01`…`CU-04` | `R-02` (operación LAN) | **QA-02:** 0 recursos externos (`https://...`) en `public/`; peticiones relativas (`/api/...`) y aviso visible ante caída del servidor local | `public/index.html`, `public/styles.css`, `public/app.js` |
+| **F-03** Seguimiento de entregas a domicilio | `CU-04` | `R-03` (móviles de repartidores) | **QA-05:** vista Repartidor mobile-first ligera (sin carga de inventario/recetas ni polling rápido), flujo `ASIGNADA → EN_CAMINO → ENTREGADO / DEVUELTO` | `entregas.service.ts`, `public/app.js`, `public/styles.css`, `tests/cu04-entregas.test.ts` |
 
 ## Tecnologías
 
@@ -175,3 +187,8 @@ restosistem/
 ├── docker-compose.yml
 └── .env.example
 ```
+
+## Referencias técnicas
+
+- Bass, L., Clements, P., & Kazman, R. *Software Architecture in Practice*. Addison-Wesley (escenarios de atributos de calidad, árbol de utilidad y tácticas de desempeño/disponibilidad).
+- ISO/IEC 25010. *Systems and software engineering — Systems and software Quality Requirements and Evaluation (SQuaRE) — System and software quality models* (características de adecuación funcional, eficiencia de desempeño, fiabilidad y usabilidad).

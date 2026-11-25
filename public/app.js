@@ -1,4 +1,5 @@
 const state = {
+  tabActiva: "mesero",
   mesas: [],
   ingredientes: [],
   inventario: [],
@@ -13,6 +14,9 @@ const state = {
   carrito: [],
   pedidoCajaId: null,
 };
+
+let cocinaTimer = null;
+let cocinaPollEnCurso = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,16 +40,60 @@ function toast(msg, kind = "ok") {
   setTimeout(() => el.remove(), 4200);
 }
 
-async function api(path, options = {}) {
+function setEstadoRed(conectado, detalle = "") {
+  const pill = $("health-pill");
+  const alertEl = $("lan-alert");
+  if (conectado) {
+    pill.textContent = "Red LAN + PostgreSQL OK";
+    pill.className = "pill pill-ok";
+    alertEl.classList.add("hidden");
+  } else {
+    pill.textContent = "Sin conexión LAN";
+    pill.className = "pill pill-danger";
+    $("lan-alert-msg").textContent =
+      detalle || "Sin conexión con el servidor local en la red LAN. Verifica que el servidor Restosistem siga activo.";
+    alertEl.classList.remove("hidden");
+  }
+}
+
+async function fetchJson(path, options = {}) {
   const method = options.method || "GET";
   const init = {
     method,
     headers: options.body ? { "Content-Type": "application/json" } : {},
     body: options.body ? JSON.stringify(options.body) : undefined,
   };
-  const res = await fetch(path, init);
+
+  let res;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    setEstadoRed(false);
+    const err = new Error("No se pudo conectar con el servidor local en la red LAN.");
+    err.esRed = true;
+    throw err;
+  }
+
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+
+  if (res.status >= 500) {
+    setEstadoRed(false, `El servidor local respondió ${res.status}. Verifica PostgreSQL y el servicio.`);
+  } else {
+    setEstadoRed(true);
+  }
+
+  return { res, data };
+}
+
+async function api(path, options = {}) {
+  const method = options.method || "GET";
+  const { res, data } = await fetchJson(path, options);
 
   $("api-last-summary").textContent = `${method} ${path} → ${res.status} ${res.statusText}`;
   $("api-last-json").textContent = JSON.stringify(data, null, 2);
@@ -67,55 +115,137 @@ function estadoPill(estado) {
   return "pill-muted";
 }
 
-async function cargarTodo() {
-  try {
-    const health = await fetch("/health").then((r) => r.json());
-    $("health-pill").textContent = health.estado === "ok" ? "Backend + PostgreSQL OK" : "Error";
-    $("health-pill").className = `pill ${health.estado === "ok" ? "pill-ok" : "pill-danger"}`;
-  } catch {
-    $("health-pill").textContent = "Sin conexión";
-    $("health-pill").className = "pill pill-danger";
-  }
-
+function getNotifUrl() {
   const filtroNotif = $("filtro-notif").value;
+  return filtroNotif ? `/api/notificaciones?destino=${encodeURIComponent(filtroNotif)}` : "/api/notificaciones";
+}
+
+function getEntregasUrl() {
   const filtroEnt = $("filtro-entregas").value;
-  const notifUrl = filtroNotif ? `/api/notificaciones?destino=${encodeURIComponent(filtroNotif)}` : "/api/notificaciones";
-  const entUrl = filtroEnt ? `/api/entregas?estado=${encodeURIComponent(filtroEnt)}` : "/api/entregas";
+  return filtroEnt ? `/api/entregas?estado=${encodeURIComponent(filtroEnt)}` : "/api/entregas";
+}
 
-  const [mesas, ingredientes, inventario, platos, pedidos, cocina, notificaciones, pendientesEntrega, entregas] =
-    await Promise.all([
-      fetch("/api/mesas").then((r) => r.json()),
-      fetch("/api/ingredientes").then((r) => r.json()),
-      fetch("/api/inventario").then((r) => r.json()),
-      fetch("/api/platos").then((r) => r.json()),
-      fetch("/api/pedidos").then((r) => r.json()),
-      fetch("/api/cocina/pedidos").then((r) => r.json()),
-      fetch(notifUrl).then((r) => r.json()),
-      fetch("/api/entregas/pendientes").then((r) => r.json()),
-      fetch(entUrl).then((r) => r.json()),
+async function verificarSalud() {
+  const { res, data } = await fetchJson("/health");
+  setEstadoRed(res.ok && data?.estado === "ok");
+}
+
+async function cargarVistaCocina() {
+  if (cocinaPollEnCurso) return;
+  cocinaPollEnCurso = true;
+  try {
+    const [cocinaRes, notifRes] = await Promise.all([fetchJson("/api/cocina/pedidos"), fetchJson(getNotifUrl())]);
+    if (cocinaRes.res.ok) state.cocina = cocinaRes.data;
+    if (notifRes.res.ok) state.notificaciones = notifRes.data;
+    $("badge-cocina").textContent = state.cocina.length;
+    renderCocina();
+  } catch (e) {
+    if (!e.esRed) toast(e.message, "err");
+  } finally {
+    cocinaPollEnCurso = false;
+  }
+}
+
+async function cargarVistaEntregas() {
+  // Vista ligera para móviles de repartidores (QA-05): solo consulta entregas, sin inventario ni recetas.
+  try {
+    const [, pendRes, entRes] = await Promise.all([
+      verificarSalud(),
+      fetchJson("/api/entregas/pendientes"),
+      fetchJson(getEntregasUrl()),
     ]);
+    if (pendRes.res.ok) state.pendientesEntrega = pendRes.data;
+    if (entRes.res.ok) state.entregas = entRes.data;
+    $("badge-entregas").textContent = state.pendientesEntrega.length;
+    renderEntregas();
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
 
-  state.mesas = mesas;
-  state.ingredientes = ingredientes;
-  state.inventario = inventario;
-  state.platos = platos;
-  state.pedidos = pedidos;
-  state.cocina = cocina;
-  state.notificaciones = notificaciones;
-  state.pendientesEntrega = pendientesEntrega;
-  state.entregas = entregas;
-
-  if (!state.mesaSeleccionada && mesas.length) {
-    state.mesaSeleccionada = mesas[0].id;
+async function cargarVistaActual() {
+  if (state.tabActiva === "cocina") {
+    await Promise.all([verificarSalud().catch(() => {}), cargarVistaCocina()]);
+    return;
+  }
+  if (state.tabActiva === "entregas") {
+    await cargarVistaEntregas();
+    return;
   }
 
-  renderTodo();
+  try {
+    await verificarSalud();
+    if (state.tabActiva === "mesero") {
+      const [mesasR, platosR, pedidosR, cocinaR] = await Promise.all([
+        fetchJson("/api/mesas"),
+        fetchJson("/api/platos"),
+        fetchJson("/api/pedidos"),
+        fetchJson("/api/cocina/pedidos"),
+      ]);
+      if (mesasR.res.ok) state.mesas = mesasR.data;
+      if (platosR.res.ok) state.platos = platosR.data;
+      if (pedidosR.res.ok) state.pedidos = pedidosR.data;
+      if (cocinaR.res.ok) state.cocina = cocinaR.data;
+      if (!state.mesaSeleccionada && state.mesas.length) state.mesaSeleccionada = state.mesas[0].id;
+    } else if (state.tabActiva === "caja") {
+      const pedidosR = await fetchJson("/api/pedidos");
+      if (pedidosR.res.ok) state.pedidos = pedidosR.data;
+    } else if (state.tabActiva === "inventario") {
+      const [ingR, invR] = await Promise.all([fetchJson("/api/ingredientes"), fetchJson("/api/inventario")]);
+      if (ingR.res.ok) state.ingredientes = ingR.data;
+      if (invR.res.ok) state.inventario = invR.data;
+    }
+    renderTodo();
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+async function cargarInicial() {
+  try {
+    const [, mesasR, platosR, pedidosR, cocinaR, pendR] = await Promise.all([
+      verificarSalud(),
+      fetchJson("/api/mesas"),
+      fetchJson("/api/platos"),
+      fetchJson("/api/pedidos"),
+      fetchJson("/api/cocina/pedidos"),
+      fetchJson("/api/entregas/pendientes"),
+    ]);
+    if (mesasR.res.ok) state.mesas = mesasR.data;
+    if (platosR.res.ok) state.platos = platosR.data;
+    if (pedidosR.res.ok) state.pedidos = pedidosR.data;
+    if (cocinaR.res.ok) state.cocina = cocinaR.data;
+    if (pendR.res.ok) state.pendientesEntrega = pendR.data;
+    if (!state.mesaSeleccionada && state.mesas.length) state.mesaSeleccionada = state.mesas[0].id;
+    renderTodo();
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+function sincronizarPollingCocina() {
+  if (cocinaTimer) {
+    clearInterval(cocinaTimer);
+    cocinaTimer = null;
+  }
+  if (state.tabActiva === "cocina") {
+    // QA-01: actualización en <= 2s solo cuando la pestaña Cocina está activa.
+    cocinaTimer = setInterval(() => {
+      if (document.visibilityState !== "hidden" && state.tabActiva === "cocina") {
+        cargarVistaCocina();
+      }
+    }, 1500);
+  }
+}
+
+function pedidosCobrables() {
+  return state.pedidos.filter(
+    (p) => p.pagoEstado === "PENDIENTE_PAGO" && (p.estado === "LISTO" || (p.tipo === "DOMICILIO" && p.estado === "CERRADO")),
+  );
 }
 
 function renderTodo() {
-  const cobrables = state.pedidos.filter(
-    (p) => p.pagoEstado === "PENDIENTE_PAGO" && (p.estado === "LISTO" || (p.tipo === "DOMICILIO" && p.estado === "CERRADO")),
-  );
+  const cobrables = pedidosCobrables();
   $("badge-cocina").textContent = state.cocina.length;
   $("badge-caja").textContent = cobrables.length;
   $("badge-entregas").textContent = state.pendientesEntrega.length;
@@ -433,18 +563,22 @@ function agregarLineaReceta() {
 /* ---------- Eventos ---------- */
 
 document.querySelectorAll(".tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
     document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
-    $(`panel-${btn.dataset.tab}`).classList.add("active");
+    state.tabActiva = btn.dataset.tab;
+    $(`panel-${state.tabActiva}`).classList.add("active");
+    sincronizarPollingCocina();
+    await cargarVistaActual();
   });
 });
 
-$("btn-refresh").addEventListener("click", () => cargarTodo());
+$("btn-refresh").addEventListener("click", () => cargarVistaActual());
+$("btn-reintentar-lan").addEventListener("click", () => cargarVistaActual());
 $("btn-toggle-json").addEventListener("click", () => $("api-last-json").classList.toggle("hidden"));
-$("filtro-notif").addEventListener("change", () => cargarTodo());
-$("filtro-entregas").addEventListener("change", () => cargarTodo());
+$("filtro-notif").addEventListener("change", () => cargarVistaCocina());
+$("filtro-entregas").addEventListener("change", () => cargarVistaEntregas());
 
 $("tipo-mesa").addEventListener("click", () => {
   state.tipoPedido = "MESA";
@@ -488,10 +622,10 @@ $("btn-enviar-pedido").addEventListener("click", async () => {
     state.carrito = [];
     $("pedido-notas").value = "";
     toast(`Pedido #${creado.id} enviado a cocina`);
-    await cargarTodo();
+    await cargarVistaActual();
   } catch (e) {
     toast(e.message, "err");
-    await cargarTodo();
+    if (!e.esRed) await cargarVistaActual();
   }
 });
 
@@ -517,7 +651,7 @@ document.addEventListener("click", async (ev) => {
     } else if (t.dataset.cancelar) {
       await api(`/api/pedidos/${t.dataset.cancelar}/cancelar`, { method: "POST" });
       toast(`Pedido #${t.dataset.cancelar} cancelado`);
-      await cargarTodo();
+      await cargarVistaActual();
     } else if (t.dataset.modificar) {
       const p = state.pedidos.find((x) => x.id === Number(t.dataset.modificar));
       const items = p.items.map((i, idx) => ({
@@ -527,19 +661,19 @@ document.addEventListener("click", async (ev) => {
       }));
       await api(`/api/pedidos/${p.id}/items`, { method: "PUT", body: { items } });
       toast(`Pedido #${p.id} modificado`);
-      await cargarTodo();
+      await cargarVistaActual();
     } else if (t.dataset.iniciar) {
       await api(`/api/cocina/pedidos/${t.dataset.iniciar}/iniciar`, { method: "POST" });
       toast(`Pedido #${t.dataset.iniciar} en preparación`);
-      await cargarTodo();
+      await cargarVistaCocina();
     } else if (t.dataset.listo) {
       await api(`/api/cocina/pedidos/${t.dataset.listo}/listo`, { method: "POST" });
       toast(`Pedido #${t.dataset.listo} listo y notificado al salón`);
-      await cargarTodo();
+      await cargarVistaCocina();
     } else if (t.dataset.seleccionarCaja) {
       state.pedidoCajaId = Number(t.dataset.seleccionarCaja);
       await api(`/api/pedidos/${state.pedidoCajaId}/total`);
-      renderTodo();
+      renderCaja(pedidosCobrables());
     } else if (t.id === "btn-ejecutar-cobro") {
       const metodo = $("pago-metodo").value;
       const body = { metodo };
@@ -564,26 +698,26 @@ document.addEventListener("click", async (ev) => {
         </div>`;
       toast(`Pedido #${state.pedidoCajaId} cobrado`);
       state.pedidoCajaId = null;
-      await cargarTodo();
+      await cargarVistaActual();
     } else if (t.dataset.tomar) {
       const repartidor = $("repartidor-nombre").value.trim();
       await api("/api/entregas", { method: "POST", body: { pedidoId: Number(t.dataset.tomar), repartidor } });
       toast(`Entrega tomada por ${repartidor}`);
-      await cargarTodo();
+      await cargarVistaEntregas();
     } else if (t.dataset.enCamino) {
       await api(`/api/entregas/${t.dataset.enCamino}/en-camino`, { method: "POST" });
       toast(`Entrega #${t.dataset.enCamino} en camino`);
-      await cargarTodo();
+      await cargarVistaEntregas();
     } else if (t.dataset.entregado) {
       await api(`/api/entregas/${t.dataset.entregado}/entregado`, { method: "POST" });
       toast(`Entrega #${t.dataset.entregado} completada`);
-      await cargarTodo();
+      await cargarVistaEntregas();
     } else if (t.dataset.devuelto) {
       const motivo = window.prompt("Motivo de devolución:", "Cliente ilocalizable");
       if (!motivo) return;
       await api(`/api/entregas/${t.dataset.devuelto}/devuelto`, { method: "POST", body: { motivo } });
       toast(`Entrega #${t.dataset.devuelto} devuelta`, "err");
-      await cargarTodo();
+      await cargarVistaEntregas();
     } else if (t.dataset.reponer) {
       const raw = window.prompt("Cantidad a reponer:", "500");
       if (!raw) return;
@@ -592,11 +726,11 @@ document.addEventListener("click", async (ev) => {
         body: { cantidad: Number(raw) },
       });
       toast("Stock repuesto");
-      await cargarTodo();
+      await cargarVistaActual();
     }
   } catch (e) {
     toast(e.message, "err");
-    await cargarTodo();
+    if (!e.esRed) await cargarVistaActual();
   }
 });
 
@@ -612,7 +746,7 @@ $("form-mesa").addEventListener("submit", async (e) => {
     await api("/api/mesas", { method: "POST", body: { numero: Number($("nueva-mesa-num").value) } });
     $("nueva-mesa-num").value = "";
     toast("Mesa creada");
-    await cargarTodo();
+    await cargarVistaActual();
   } catch (err) {
     toast(err.message, "err");
   }
@@ -632,7 +766,7 @@ $("form-ingrediente").addEventListener("submit", async (e) => {
     e.target.reset();
     $("nuevo-ing-stock").value = "0";
     toast("Ingrediente creado");
-    await cargarTodo();
+    await cargarVistaActual();
   } catch (err) {
     toast(err.message, "err");
   }
@@ -659,11 +793,11 @@ $("form-plato").addEventListener("submit", async (e) => {
     $("receta-builder").innerHTML = "";
     agregarLineaReceta();
     toast("Plato creado");
-    await cargarTodo();
+    await cargarVistaActual();
   } catch (err) {
     toast(err.message, "err");
   }
 });
 
-await cargarTodo();
+await cargarInicial();
 agregarLineaReceta();

@@ -16,13 +16,18 @@
 
 Los drivers y casos de uso **no se modificaron**; se implementaron tal como están documentados.
 
-## Trazabilidad driver → caso de uso → implementación
+## Trazabilidad driver → caso de uso → escenario de calidad
 
-| Driver / necesidad | Caso de uso | Endpoints principales | Componentes |
-|---|---|---|---|
-| **F-01** Control exacto de existencias y registro de ventas (R-01) | CU-01 (validar stock), CU-03 | `POST /api/pedidos`, `POST /api/pedidos/{pedidoId}/pagos`, `GET /api/inventario` | `application/pedidos.service.ts`, `application/cobro.service.ts`, `persistence/repositories/inventario.repository.ts`, `domain/reglas.ts` |
-| **F-02** Cocina ve pedidos y actualiza estados | CU-01, CU-02 | `GET /api/cocina/pedidos`, `POST /api/cocina/pedidos/{id}/iniciar`, `…/listo`, `GET /api/notificaciones` | `application/preparacion.service.ts`, `presentation/controllers/pedidos.controller.ts` |
-| **F-03** Seguimiento de entregas y direcciones sin confusión | CU-04 | `POST /api/entregas`, `…/en-camino`, `…/entregado`, `…/devuelto` | `application/entregas.service.ts`, `persistence/repositories/entrega.repository.ts` |
+| Driver | Caso de uso | Regla / Restricción | Escenario y métrica comprobable | Endpoints / Componentes |
+|---|---|---|---|---|
+| **F-01** Control exacto de existencias y registro de ventas | `CU-01`, `CU-03` | `R-01` (descuento estricto por receta) | **QA-04:** 0 cobros aprobados duplicados (`UNIQUE`), 0 saldos negativos (`CHECK >= 0`) y rollback completo si falta stock en concurrencia | `POST /api/pedidos`, `POST /api/pedidos/{pedidoId}/pagos`, `cobro.service.ts`, `inventario.repository.ts`, `pago.repository.ts` |
+| **F-02** Cocina ve pedidos y actualiza estados | `CU-01`, `CU-02` | `R-02` (red local LAN) | **QA-01:** polling exclusivo en vista Cocina cada **1.5 s** (≤ 2 s), detenido al cambiar de pestaña<br>**QA-03:** toma de pedido estándar en **≤ 12 interacciones** | `GET /api/cocina/pedidos`, `…/iniciar`, `…/listo`, `preparacion.service.ts`, `public/app.js` |
+| **F-01 / F-02** Continuidad sin internet externo | `CU-01`…`CU-04` | `R-02` (operación local) | **QA-02:** 0 dependencias externas en `public/`, rutas relativas `/api/...` y alerta visible ante pérdida de conexión LAN | `public/index.html`, `public/styles.css`, `public/app.js`, `src/app.ts` |
+| **F-03** Seguimiento de entregas y direcciones | `CU-04` | `R-03` (teléfonos de repartidores) | **QA-05:** vista Repartidor mobile-first ligera sin descarga de inventario ni polling rápido; flujo `ASIGNADA → EN_CAMINO → ENTREGADO \| DEVUELTO` | `GET /api/entregas/pendientes`, `POST /api/entregas`, `entregas.service.ts`, `entrega.repository.ts` |
+
+**Alcance excluido explícito:** facturación electrónica conectada al SRI, pasarelas de pago en línea reales, módulo de RRHH/nómina, programas de fidelización, autenticación/roles y replicación hacia nube externa.
+
+**Justificación de red local (`R-02`):** ante cortes o inestabilidad del proveedor de Internet (ISP) en horas pico, operar íntegramente en la LAN del restaurante (backend Node.js + PostgreSQL local + activos estáticos locales sin CDNs) garantiza continuidad operativa sin pérdida de pedidos ni bloqueos en cocina o caja.
 
 ---
 
@@ -116,6 +121,16 @@ Los drivers y casos de uso **no se modificaron**; se implementaron tal como est�
 - **Resultado:** `tsc --noEmit` sin errores; **75/75 pruebas pasando** (7 archivos); interfaz web verificada en `/` junto con `/styles.css`, `/app.js` y `/health`.
 - **Pendientes:** verificación manual en navegador por el autor y registro del commit final en Moodle (`P-01`).
 
+## INC-10 — Auditoría arquitectónica de concurrencia (QA-04), LAN local (QA-02), Cocina/Repartidor (QA-01/QA-05) y trazabilidad
+- **Fecha:** 2026-11-25
+- **Driver:** F-01, F-02, F-03 (`R-01`, `R-02`, `R-03`, `QA-01`…`QA-05`).
+- **Caso de uso:** CU-01…CU-04.
+- **Archivos/componentes:** `tests/cu03-cobro.test.ts`; `public/index.html`; `public/styles.css`; `public/app.js`; `README.md`; `docs/bitacora.md`.
+- **Cambio:** se agregó prueba concurrente (`Promise.all`) de dos pedidos compitiendo por el último ingrediente disponible y validación explícita de 0 cobros aprobados duplicados y 0 saldos negativos. En la interfaz web local (`public/`) se incorporó banner de caída/reconexión LAN (`#lan-alert`), carga selectiva por vista (Repartidor mobile-first no descarga inventario/recetas ni hace polling rápido) y polling exclusivo en Cocina cada `1.5 s` (detenido al salir de la pestaña). Se completó la matriz de trazabilidad con métricas comprobables, exclusiones de alcance, justificación LAN y referencias técnicas.
+- **Pruebas:** `npm run typecheck` y `npm test` contra PostgreSQL 18 local.
+- **Resultado:** `tsc --noEmit` sin errores; **76/76 pruebas pasando** (7 archivos, incluyendo concurrencia sobre último ingrediente); `0` recursos externos en `public/` y UI verificada en vivo.
+- **Pendientes:** publicar el commit de auditoría en GitHub (`P-01`).
+
 ---
 
 ## Pendientes y limitaciones (estado real)
@@ -123,8 +138,13 @@ Los drivers y casos de uso **no se modificaron**; se implementaron tal como est�
 | ID | Pendiente | Motivo / estado |
 |---|---|---|
 | P-01 | Indicar en Moodle la rama (`main`) y el hash del commit tras hacer `git push` a GitHub | Commit preparado sobre `origin/main` (`3ec4938`) en `https://github.com/jeremyjacc/proyecto_drivers.git`. |
-| P-02 | **R-02** operación en red local sin Internet + sincronización posterior (QA-02) | No implementado: excede los cuatro flujos solicitados en este criterio. Requiere decisión de arquitectura (réplica local / consistencia eventual, Tensión 1 del Criterio 1). |
-| P-03 | **R-03** interfaz móvil de entregas (QA-05) | No implementada: se entrega solo la API REST. |
-| P-04 | **QA-01** (latencia ≤ 2 s p95) y **QA-04** (descuento ≤ 3 s) | No medidos; no se hicieron pruebas de carga. Cocina consulta por HTTP (sin WebSocket/SSE). |
-| P-05 | Autenticación, roles y auditoría de usuario | No solicitado en este criterio. |
-| P-06 | Cobertura de código (`vitest --coverage`) no configurada | Solo se miden escenarios, no porcentaje. |
+| P-02 | **R-02** sincronización hacia nube tras cortes de Internet | No implementado (el sistema opera 100 % en LAN local; la replicación eventual hacia la nube queda para etapas posteriores). |
+| P-03 | **QA-05** auditoría automatizada con Lighthouse en CI/CD y PWA offline | Se entrega vista web mobile-first ligera sin dependencias externas; la auditoría Lighthouse en CI queda pendiente. |
+| P-04 | **QA-01** y **QA-04** pruebas de carga con 30 mesas simultáneas (JMeter) | Cocina actualiza vía polling cada 1.5 s y las transacciones están cubiertas por pruebas de concurrencia; falta benchmark de 30 clientes con JMeter. |
+| P-05 | Autenticación, roles y auditoría de usuario | Fuera de alcance en este criterio. |
+| P-06 | Cobertura de código (`vitest --coverage`) no configurada | Se verifican escenarios funcionales, concurrencia, capas y contrato OpenAPI. |
+
+## Referencias técnicas
+
+- Bass, L., Clements, P., & Kazman, R. *Software Architecture in Practice*. Addison-Wesley.
+- ISO/IEC 25010. *Systems and software engineering — Systems and software Quality Requirements and Evaluation (SQuaRE)*.
