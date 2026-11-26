@@ -1,5 +1,5 @@
 import { z } from "zod";
-
+//Plantilla de datos para  ID
 const id = z.coerce.number().int().positive();
 export const idParam = z.object({ id });
 export const pedidoIdParam = z.object({ pedidoId: id });
@@ -8,7 +8,7 @@ const texto = (max = 200) => z.string().trim().min(1).max(max);
 const cantidadPositiva = z.number().positive().finite();
 
 export const crearMesaBody = z.object({ numero: z.number().int().positive() }).strict();
-
+//PLANTILLA PARA CREAR INSUMO
 export const crearIngredienteBody = z
   .object({
     nombre: texto(100),
@@ -18,7 +18,7 @@ export const crearIngredienteBody = z
   .strict();
 
 export const reponerBody = z.object({ cantidad: cantidadPositiva }).strict();
-
+// PLANTILLA DE DATOS VÁLIDOS PARA CREAR PLATILLO
 export const crearPlatoBody = z
   .object({
     nombre: texto(100),
@@ -28,7 +28,7 @@ export const crearPlatoBody = z
       .min(1, "La receta debe tener al menos un ingrediente"),
   })
   .strict();
-
+// PLANTILLA DE DATOS PARA CREAR UN ITEM DE PEDIDO
 const itemPedido = z
   .object({
     platoId: z.number().int().positive(),
@@ -36,7 +36,7 @@ const itemPedido = z
     nota: z.string().trim().max(200).nullish(),
   })
   .strict();
-
+// PLANTILLA DE DATOS VÁLIDOS PARA CREAR PEDIDO
 export const crearPedidoBody = z
   .object({
     tipo: z.enum(["MESA", "DOMICILIO"]),

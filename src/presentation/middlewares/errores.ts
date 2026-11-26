@@ -1,6 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { AppError, type TipoError } from "../../domain/errors";
+// Mapeo de tipos de error a códigos de estado HTTP
+// Un middleware es un código que se ejecuta
+//  automáticamente antes o después del controlador 
+// para no repetir código
 
+// En este caso, se encarga de manejar los errores y 
+// enviar respuestas JSON apropiadas al cliente.
 const STATUS: Record<TipoError, number> = {
   validacion: 400,
   no_encontrado: 404,

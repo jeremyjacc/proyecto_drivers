@@ -1,3 +1,5 @@
+// Aquí manejamos la validación de los datos
+
 import type { NextFunction, Request, Response } from "express";
 import type { ZodTypeAny, z } from "zod";
 import { validacion } from "../../domain/errors";

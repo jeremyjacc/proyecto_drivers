@@ -5,7 +5,7 @@ import type { EntregasController } from "../controllers/entregas.controller";
 import type { PedidosController, PreparacionController } from "../controllers/pedidos.controller";
 import { validar } from "../middlewares/validar";
 import * as s from "../schemas";
-
+//MAPAS DE RUTAS DE VALIDACIÓN
 export interface Controladores {
   catalogo: CatalogoController;
   pedidos: PedidosController;
@@ -16,7 +16,7 @@ export interface Controladores {
 
 export function crearRutas(c: Controladores): Router {
   const r = Router();
-
+  // PROTOCOLOS HTTP
   // Catálogo, ingredientes e inventario
   r.post("/mesas", validar("body", s.crearMesaBody), c.catalogo.crearMesa);
   r.get("/mesas", c.catalogo.listarMesas);
