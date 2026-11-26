@@ -3,6 +3,8 @@
 Sistema de gestión para restaurantes: comunicación mesero–cocina, pedidos a domicilio, control de inventario por recetas y seguimiento de entregas.
 Proyecto de **Arquitectura de Software** — RdA 1, Criterio 2 (Semana 5): *monolito en capas, contrato de API, pruebas y bitácora*.
 
+**Repositorio:** [https://github.com/jeremyjacc/proyecto_drivers.git](https://github.com/jeremyjacc/proyecto_drivers.git)
+
 ## Qué implementa
 
 Cuatro flujos de punta a punta (HTTP → aplicación → PostgreSQL), con los drivers y casos de uso del Criterio 1:
@@ -66,11 +68,27 @@ docker compose up -d
 
 **Opción B — PostgreSQL local:**
 
+Debes crear el usuario y las bases de datos ejecutando este script SQL con el usuario administrador `postgres`:
+
 ```sql
 CREATE USER restosistem WITH PASSWORD 'restosistem';
 CREATE DATABASE restosistem OWNER restosistem;
 CREATE DATABASE restosistem_test OWNER restosistem;
 ```
+
+¿Dónde y cómo ejecutarlo en Windows?
+
+* **Vía SQL Shell (psql) — La más rápida:**
+  1. En el menú Inicio de Windows, busca y abre **SQL Shell (psql)**.
+  2. Presiona `Enter` para aceptar los valores por defecto en: *Server [localhost]*, *Database [postgres]*, *Port [5432]* y *Username [postgres]*.
+  3. Ingresa la contraseña de tu usuario `postgres` y presiona `Enter` (por seguridad no se mostrarán caracteres al escribirla).
+  4. Una vez veas `postgres=#`, pega el bloque SQL de arriba y presiona `Enter`.
+  5. Escribe `\q` y presiona `Enter` para salir.
+
+* **Vía pgAdmin 4 (Interfaz gráfica):**
+  1. Abre **pgAdmin 4** e inicia sesión en tu servidor PostgreSQL.
+  2. En el panel izquierdo, haz clic derecho sobre la base de datos **postgres** y selecciona **Query Tool**.
+  3. Pega el bloque SQL de arriba en el editor y presiona `F5` (o el botón de **Play ▶**).
 
 ### Migraciones (creación de tablas)
 
@@ -87,6 +105,45 @@ curl localhost:3000/health
 ```
 
 Al abrir `http://localhost:3000` en el navegador se carga el panel operativo visual (Mesero, Cocina, Caja, Repartidor e Inventario/Catálogo), que consume directamente los endpoints `/api/*` del backend junto con un visor de la última llamada HTTP.
+
+### Cómo consultar y verificar los datos manualmente
+
+Una vez aplicadas las migraciones y el seed (`npm run db:migrate && npm run db:seed`), puedes verificar los datos registrados de cuatro maneras:
+
+#### 1. Desde la interfaz web (LAN)
+Abre `http://localhost:3000` en el navegador:
+* **Inventario y Catálogo:** Muestra en tiempo real los ingredientes, stock disponible y platos con sus recetas.
+* **Mesero / Cocina / Caja / Repartidor:** Muestra mesas activas, órdenes en preparación y flujo de cobro/entrega.
+
+#### 2. Visualmente desde pgAdmin 4 (cuadrícula tipo hoja de cálculo)
+1. En pgAdmin, navega en el panel izquierdo: `Servers` → `PostgreSQL 18` → `Databases` → `restosistem` → `Schemas` → `public` → `Tables`.
+2. Haz clic derecho sobre cualquier tabla (`platos`, `inventario`, `pedidos`, `mesas`, etc.) y selecciona **View/Edit Data** → **All Rows**.
+
+#### 3. Mediante consultas SQL (SQL Shell o pgAdmin Query Tool)
+Conéctate a la base de datos `restosistem` y ejecuta:
+
+```sql
+-- Consultar mesas registradas
+SELECT * FROM mesas;
+
+-- Consultar platos del menú y precios
+SELECT id, nombre, precio, categoria, activo FROM platos;
+
+-- Consultar stock actual de ingredientes
+SELECT i.nombre, inv.stock_actual, i.unidad_medida 
+FROM inventario inv 
+JOIN ingredientes i ON inv.ingrediente_id = i.id;
+
+-- Consultar pedidos registrados
+SELECT * FROM pedidos;
+```
+
+#### 4. Directamente desde los endpoints de la API (JSON en navegador o curl)
+Puedes abrir estas URLs directamente en el navegador:
+* Platos: [http://localhost:3000/api/catalogo/platos](http://localhost:3000/api/catalogo/platos)
+* Mesas: [http://localhost:3000/api/catalogo/mesas](http://localhost:3000/api/catalogo/mesas)
+* Inventario: [http://localhost:3000/api/catalogo/inventario](http://localhost:3000/api/catalogo/inventario)
+* Pedidos: [http://localhost:3000/api/pedidos](http://localhost:3000/api/pedidos)
 
 ## Pruebas
 

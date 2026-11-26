@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Restosistem: sistema de gestión para restaurantes (monolito en capas) - Arquitectura de Software, Criterio 2 RdA 1",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeremyjacc/proyecto_drivers.git"
+  },
   "type": "module",
   "scripts": {
     "start": "tsx src/server.ts",
