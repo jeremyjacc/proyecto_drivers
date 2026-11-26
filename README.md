@@ -109,7 +109,7 @@ Requiere PostgreSQL accesible en `TEST_DATABASE_URL`. La suite usa PostgreSQL re
 
 ## Contrato OpenAPI
 
-Archivo: [`docs/openapi.yaml`](docs/openapi.yaml). Para verlo en una interfaz, por ejemplo:
+Archivo: [`docs/openapi.yaml`](docs/openapi.yaml), también publicado en vivo en `GET http://localhost:3000/openapi.yaml`. Para verlo en una interfaz, por ejemplo:
 
 ```bash
 npx @redocly/cli preview-docs docs/openapi.yaml       # o pega el YAML en https://editor.swagger.io

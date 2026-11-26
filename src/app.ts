@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CatalogoService } from "./application/catalogo.service";
@@ -18,7 +19,9 @@ import {
 import { manejarErrores, noEncontradaRuta } from "./presentation/middlewares/errores";
 import { crearRutas } from "./presentation/routes";
 
-const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+const OPENAPI_PATH = path.join(ROOT_DIR, "docs/openapi.yaml");
 
 /**
  * Raíz de composición del monolito: aquí (y solo aquí) se conectan las tres
@@ -40,6 +43,11 @@ export function crearApp(pool: Pool): Express {
   app.get("/health", async (_req, res) => {
     await pool.query("SELECT 1");
     res.json({ estado: "ok" });
+  });
+
+  app.get("/openapi.yaml", async (_req, res) => {
+    const doc = await readFile(OPENAPI_PATH, "utf8");
+    res.type("application/yaml").send(doc);
   });
 
   app.use(

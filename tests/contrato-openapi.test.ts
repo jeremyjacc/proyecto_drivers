@@ -140,4 +140,12 @@ describe("Contrato OpenAPI (docs/openapi.yaml)", () => {
     expect(ajv.validate(api.paths["/health"].get.responses["200"].content["application/json"].schema, health.body)).toBe(true);
     expect(domicilio.direccionEntrega).toBeTruthy();
   });
+
+  it("publica el contrato OpenAPI en GET /openapi.yaml", async () => {
+    const res = await env.api.get("/openapi.yaml");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/yaml");
+    expect(res.text).toContain("openapi: 3.0.3");
+    expect(res.text).toContain("/pedidos:");
+  });
 });

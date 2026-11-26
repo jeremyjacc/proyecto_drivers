@@ -129,7 +129,17 @@ Los drivers y casos de uso **no se modificaron**; se implementaron tal como est�
 - **Cambio:** se agregó prueba concurrente (`Promise.all`) de dos pedidos compitiendo por el último ingrediente disponible y validación explícita de 0 cobros aprobados duplicados y 0 saldos negativos. En la interfaz web local (`public/`) se incorporó banner de caída/reconexión LAN (`#lan-alert`), carga selectiva por vista (Repartidor mobile-first no descarga inventario/recetas ni hace polling rápido) y polling exclusivo en Cocina cada `1.5 s` (detenido al salir de la pestaña). Se completó la matriz de trazabilidad con métricas comprobables, exclusiones de alcance, justificación LAN y referencias técnicas.
 - **Pruebas:** `npm run typecheck` y `npm test` contra PostgreSQL 18 local.
 - **Resultado:** `tsc --noEmit` sin errores; **76/76 pruebas pasando** (7 archivos, incluyendo concurrencia sobre último ingrediente); `0` recursos externos en `public/` y UI verificada en vivo.
-- **Pendientes:** publicar el commit de auditoría en GitHub (`P-01`).
+- **Pendientes:** publicar en GitHub (`P-01`).
+
+## INC-11 — Publicación HTTP del contrato en `GET /openapi.yaml`
+- **Fecha:** 2026-11-25
+- **Driver:** F-01, F-02, F-03 (verificabilidad directa del contrato OpenAPI desde el servidor).
+- **Caso de uso:** CU-01…CU-04.
+- **Archivos/componentes:** `src/app.ts`; `tests/contrato-openapi.test.ts`; `README.md`; `docs/bitacora.md`.
+- **Cambio:** se expuso `GET /openapi.yaml` (`application/yaml`) en la raíz de composición (`src/app.ts`) alineando el proyecto con la práctica de referencia de la semana 5 sin alterar el router `/api`, junto con su prueba automatizada en `tests/contrato-openapi.test.ts`.
+- **Pruebas:** `npm run typecheck` y `npm test`.
+- **Resultado:** `tsc --noEmit` sin errores; **77/77 pruebas pasando** (7 archivos).
+- **Pendientes:** publicar y verificar hash en GitHub (`P-01`).
 
 ---
 
